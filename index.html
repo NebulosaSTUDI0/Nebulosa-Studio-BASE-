@@ -37,6 +37,19 @@ body{font-family:Georgia,"Times New Roman",serif;color:var(--text)}
   margin:0;font-size:clamp(.8rem,2.4vw,1rem);letter-spacing:.08em;text-indent:.08em;text-align:center;transform:translateX(calc(var(--lw) * -.0334));
   max-width:32ch;line-height:1.6;opacity:0;animation:fade 2s ease 2.6s forwards;
 }
+.next{
+  position:fixed;right:calc(1.5rem + env(safe-area-inset-right,0px));bottom:calc(1.5rem + env(safe-area-inset-bottom,0px));
+  width:3.8rem;height:3.8rem;display:grid;place-items:center;
+  background:none;border:1px solid transparent;border-radius:0;margin:0;padding:0;cursor:pointer;
+  line-height:0;
+  color:rgba(255,255,255,.22);
+  transition:color .3s ease,background-color .3s ease,border-color .3s ease;
+  opacity:0;animation:fadeIn 2s ease 3s forwards;
+}
+.next svg{width:1.5rem;height:1.5rem;display:block;fill:none;stroke:currentColor;stroke-width:3;stroke-linecap:square;stroke-linejoin:miter}
+.next:hover,.next:focus-visible{color:#000;background-color:#fff;border-color:#fff}
+.next:focus-visible{outline:none}
+@keyframes fadeIn{to{opacity:1}}
 @keyframes rise{from{opacity:0;filter:blur(14px) drop-shadow(0 0 0 transparent)}to{opacity:1}}
 @keyframes sweep{0%{background-position:-150% 0}45%,100%{background-position:150% 0}}
 @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
@@ -52,6 +65,7 @@ body{font-family:Georgia,"Times New Roman",serif;color:var(--text)}
 <main class="hero">
   <div class="logo" role="img" aria-label="Nebulosa Studio"></div>
   <p class="tag">Estudio independiente de animación</p>
+  <button class="next" type="button" aria-label="Continuar"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="8,3 17,12 8,21"/></svg></button>
 </main>
 <script>
 (function(){
