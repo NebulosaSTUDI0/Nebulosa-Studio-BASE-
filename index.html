@@ -61,7 +61,7 @@ body{font-family:Georgia,"Times New Roman",serif;color:var(--text)}
   function init(){
     dpr=Math.min(devicePixelRatio||1,2);
     w=c.width=innerWidth*dpr;h=c.height=innerHeight*dpr;
-    const n=Math.round(innerWidth*innerHeight/9000);
+    const n=Math.round(innerWidth*innerHeight/3500);
     stars=Array.from({length:n},()=>({
       x:Math.random()*w,y:Math.random()*h,
       z:Math.random(),r:(Math.random()*1.1+.3)*dpr,
