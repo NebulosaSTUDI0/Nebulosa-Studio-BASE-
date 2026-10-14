@@ -50,6 +50,15 @@ body{font-family:Georgia,"Times New Roman",serif;color:var(--text)}
 .next:hover,.next:focus-visible{color:#000;background-color:#fff;border-color:#fff}
 .next:focus-visible{outline:none}
 @keyframes fadeIn{to{opacity:1}}
+@keyframes leave{to{opacity:0;transform:translateY(-70px) scale(1.04);filter:blur(10px)}}
+.going .logo,.going .tag{animation:leave 1.3s cubic-bezier(.5,0,.8,.4) forwards}
+.going .logo::after{animation:none}
+.going .next{animation:leave .6s ease forwards;pointer-events:none}
+.menu{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.1rem;padding:1.5rem;opacity:0;visibility:hidden;transform:translateY(110px);transition:opacity 1.6s ease,transform 2.2s cubic-bezier(.16,.8,.2,1),visibility 0s 2.2s}
+.menu.show{opacity:1;visibility:visible;transform:none;transition-delay:0s}
+.opt{width:min(82vw,22rem);padding:1.05rem 1.2rem;background:none;border:1px solid transparent;border-radius:0;cursor:pointer;font:inherit;font-size:clamp(.95rem,3.4vw,1.15rem);letter-spacing:.12em;text-indent:.12em;color:rgba(255,255,255,.55);opacity:0;transform:translateY(26px);transition:opacity .9s ease calc(.5s + var(--i)*.2s),transform .9s ease calc(.5s + var(--i)*.2s),color .3s ease,background-color .3s ease,border-color .3s ease}
+.menu.show .opt{opacity:1;transform:none}
+.opt:hover,.opt:focus-visible{color:#000;background-color:#fff;border-color:#fff;outline:none}
 @keyframes rise{from{opacity:0;filter:blur(14px) drop-shadow(0 0 0 transparent)}to{opacity:1}}
 @keyframes sweep{0%{background-position:-150% 0}45%,100%{background-position:150% 0}}
 @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
@@ -67,11 +76,18 @@ body{font-family:Georgia,"Times New Roman",serif;color:var(--text)}
   <p class="tag">Estudio independiente de animación</p>
   <button class="next" type="button" aria-label="Continuar"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="8,3 17,12 8,21"/></svg></button>
 </main>
+<section class="menu" id="menu" aria-hidden="true" aria-label="Menú">
+  <button class="opt" type="button" style="--i:0">Hacer llamada</button>
+  <button class="opt" type="button" style="--i:1">Espacio de arte</button>
+  <button class="opt" type="button" style="--i:2">Misiones pendientes</button>
+</section>
 <script>
 (function(){
   const c=document.getElementById('sky'),x=c.getContext('2d');
   const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
   let w,h,dpr,stars=[],mx=0,my=0,tx=0,ty=0;
+  let cam=0,camPrev=0,camStart=null,camDist=0,pending=false;const CAM_DUR=3000;
+  const ease=t=>t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;
   function init(){
     dpr=Math.min(devicePixelRatio||1,2);
     w=c.width=innerWidth*dpr;h=c.height=innerHeight*dpr;
@@ -84,18 +100,39 @@ body{font-family:Georgia,"Times New Roman",serif;color:var(--text)}
   }
   function draw(t){
     mx+=(tx-mx)*.04;my+=(ty-my)*.04;
+    if(pending){camStart=t;pending=false}
+    camPrev=cam;
+    if(camStart!==null)cam=camDist*ease(Math.min((t-camStart)/CAM_DUR,1));
+    const vy=cam-camPrev;
     x.clearRect(0,0,w,h);
     for(const s of stars){
+      const f=.25+.75*s.z;
       const a=.15+.55*s.z*(.6+.4*Math.sin(t/1000*s.s+s.p));
-      const px=((s.x+mx*s.z*30*dpr)%w+w)%w,py=((s.y+my*s.z*30*dpr)%h+h)%h;
-      x.globalAlpha=a;x.fillStyle='#e4e6ff';
-      x.beginPath();x.arc(px,py,s.r*(.5+s.z),0,6.283);x.fill();
+      const px=((s.x+mx*s.z*30*dpr)%w+w)%w;
+      const py=((s.y+my*s.z*30*dpr-cam*f)%h+h)%h;
+      const r=s.r*(.5+s.z);
+      x.globalAlpha=a;x.fillStyle=x.strokeStyle='#e4e6ff';
+      const trail=vy*f*1.8;
+      if(trail>2){x.lineWidth=r*1.6;x.beginPath();x.moveTo(px,py);x.lineTo(px,py+trail);x.stroke()}
+      else{x.beginPath();x.arc(px,py,r,0,6.283);x.fill()}
     }
     if(!reduce)requestAnimationFrame(draw);
   }
   addEventListener('pointermove',e=>{tx=e.clientX/innerWidth-.5;ty=e.clientY/innerHeight-.5});
   addEventListener('resize',()=>{init();if(reduce)draw(0)});
   init();requestAnimationFrame(draw);
+
+  const btn=document.querySelector('.next'),hero=document.querySelector('.hero'),menu=document.getElementById('menu');
+  let started=false;
+  function showMenu(){menu.classList.add('show');menu.removeAttribute('aria-hidden')}
+  btn.addEventListener('click',()=>{
+    if(started)return;started=true;
+    document.body.classList.add('going');
+    if(reduce){hero.style.display='none';showMenu();return}
+    setTimeout(()=>{camDist=h*2;pending=true},1100);
+    setTimeout(()=>{hero.style.visibility='hidden'},1800);
+    setTimeout(showMenu,2900);
+  });
 })();
 </script>
 </body>
