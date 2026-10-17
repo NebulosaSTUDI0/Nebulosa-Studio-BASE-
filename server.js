@@ -205,7 +205,7 @@ function sendFile(res, file, type, headers, cache) {
 }
 
 function listItem(b, owner) {
-  return { id: b.id, name: b.name, author: b.author, updated: b.updated, count: b.order.length, thumb: b.thumb || 0, mine: !!owner && b.owner === owner };
+  return { id: b.id, name: b.name, author: b.author, updated: b.updated, count: b.order.length, thumb: b.thumb || 0, color: b.color || '', mine: !!owner && b.owner === owner };
 }
 
 async function handleApi(req, res, url, headers) {
@@ -220,6 +220,24 @@ async function handleApi(req, res, url, headers) {
   const ip = (String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()) || req.socket.remoteAddress || '?';
   let r;
 
+  if (url === '/api/owner/profile') {
+    if (m !== 'POST') return json(res, 405, { error: 'Método no permitido' }, headers);
+    if (owner.length < 16) return json(res, 400, { error: 'Falta identificador' }, headers);
+    if (!rate('pf:' + ip, 60, 600000)) return json(res, 429, { error: 'Demasiados cambios seguidos' }, headers);
+    let body;
+    try { body = JSON.parse((await readBody(req, 4096)).toString('utf8')); } catch { return json(res, 400, { error: 'Datos inválidos' }, headers); }
+    const author = clean(body && body.name, 40) || 'Anónimo';
+    const color = (body && typeof body.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(body.color)) ? body.color.toLowerCase() : '';
+    let n = 0;
+    for (const b of boards.values()) {
+      if (b.owner !== owner) continue;
+      b.author = author;
+      if (color) b.color = color;
+      persist(b); n++;
+    }
+    return json(res, 200, { ok: true, updated: n }, headers);
+  }
+
   if (url === '/api/boards') {
     if (m === 'GET') {
       const list = [...boards.values()].sort((a, b) => b.updated - a.updated).map((b) => listItem(b, owner));
@@ -233,8 +251,9 @@ async function handleApi(req, res, url, headers) {
       try { body = JSON.parse((await readBody(req, 4096)).toString('utf8')); } catch { return json(res, 400, { error: 'Datos inválidos' }, headers); }
       const name = clean(body && body.name, 60), author = clean(body && body.author, 40) || 'Anónimo';
       if (!name) return json(res, 400, { error: 'Falta el nombre del cuadro' }, headers);
+      const color = (body && typeof body.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(body.color)) ? body.color.toLowerCase() : '';
       const now = Date.now();
-      const b = { id: crypto.randomBytes(6).toString('hex'), name, author, owner, created: now, updated: now, bg: '#08080a', order: [], items: {}, thumb: 0 };
+      const b = { id: crypto.randomBytes(6).toString('hex'), name, author, color, owner, created: now, updated: now, bg: '#08080a', order: [], items: {}, thumb: 0 };
       boards.set(b.id, b); persist(b);
       return json(res, 201, listItem(b, owner), headers);
     }
