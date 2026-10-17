@@ -1,0 +1,16 @@
+{
+  "name": "nebulosa-studio",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Nebulosa Studio: sitio y reuniones de voz",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
