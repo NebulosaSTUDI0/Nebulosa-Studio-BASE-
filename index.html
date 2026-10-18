@@ -63,10 +63,13 @@
     <span class="pf" id="pW" hidden>Grosor <input type="range" id="rW" min="0" max="60" value="4"></span>
     <span class="pf" id="pOp" hidden>Opacidad <input type="range" id="rOp" min="5" max="100" value="100"></span>
     <span class="pf" id="pFont" hidden><select id="sFont" aria-label="Tipo de letra"><option value="serif">Serif</option><option value="sans">Sans</option><option value="mono">Mono</option><option value="display">Display</option></select></span>
+    <span class="pf" id="pGrp" hidden>Grupo <input type="text" id="tGrp" maxlength="30" placeholder="Nombre" autocomplete="off" spellcheck="false" aria-label="Nombre del grupo"><input type="color" id="cGrp" value="#ffffff" aria-label="Color del grupo"><button class="ctl" type="button" id="bSelGrp" title="Seleccionar todo el grupo">Elegir grupo</button></span>
     <span class="pf" id="pAct" hidden>
       <button class="ctl" type="button" id="bFlip" title="Voltear horizontalmente">Voltear</button>
       <button class="ctl" type="button" id="bFront" title="Traer al frente">Frente</button>
       <button class="ctl" type="button" id="bBack" title="Enviar al fondo">Fondo</button>
+      <button class="ctl" type="button" id="bGroup" title="Agrupar las piezas seleccionadas (Ctrl+G)">Agrupar</button>
+      <button class="ctl" type="button" id="bUngroup" title="Quitar de su grupo (Ctrl+Mayús+G)" hidden>Sin grupo</button>
       <button class="ctl" type="button" id="bDup" title="Duplicar (Ctrl+D)">Duplicar</button>
       <button class="ctl" type="button" id="bDel" title="Borrar (Supr)">Borrar</button>
     </span>
@@ -75,12 +78,31 @@
     <button class="ctl icon on" type="button" data-tool="select" title="Seleccionar (V)" aria-label="Seleccionar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3l14 7-6 2-2 6z"/></svg></button>
     <button class="ctl icon" type="button" data-tool="hand" title="Mover lienzo (H o Espacio)" aria-label="Mover lienzo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/></svg></button>
     <button class="ctl icon" type="button" data-tool="draw" title="Dibujar (P)" aria-label="Dibujar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l1-5L16 4l4 4L9 19zM14 6l4 4"/></svg></button>
+    <button class="ctl icon" type="button" data-tool="thread" title="Hilo: une imágenes entre sí (L). Arrastra de una pieza a otra" aria-label="Hilo"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="18" r="2"/><circle cx="19" cy="6" r="2"/><path d="M6.6 16.6L17.4 7.4"/></svg></button>
     <button class="ctl icon" type="button" data-tool="text" title="Texto (T)" aria-label="Texto"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6V4h14v2M12 4v16M9 20h6"/></svg></button>
     <button class="ctl icon" type="button" data-tool="rect" title="Rectángulo (R)" aria-label="Rectángulo"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14"/></svg></button>
     <button class="ctl icon" type="button" data-tool="ellipse" title="Elipse (O)" aria-label="Elipse"><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="12" rx="8" ry="6"/></svg></button>
     <button class="ctl icon" type="button" id="bImg" title="Añadir imágenes (I). También puedes arrastrarlas o pegarlas con Ctrl+V" aria-label="Añadir imágenes"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16"/><circle cx="9" cy="10" r="1.8"/><path d="M3 18l5-5 4 4 3-3 6 6"/></svg></button>
   </div>
   <input type="file" id="imgPick" accept="image/*" multiple hidden>
+  <div class="sapps sgrp" id="sApps" role="toolbar" aria-label="Apps de referencia">
+    <button class="ctl icon" type="button" id="bPin" title="Pinterest (abre un celular dentro del cuadro)" aria-label="Pinterest" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M11 18l1.6-7.2M9.4 13.4c-.9-2.4.4-5 3.1-5 1.9 0 3 1.2 3 2.8 0 2-1.1 3.4-2.6 3.4-.9 0-1.5-.7-1.3-1.5"/></svg></button>
+    <button class="ctl icon" type="button" id="bYt" title="YouTube: música dentro del cuadro" aria-label="YouTube" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5.5" width="19" height="13" rx="4"/><path d="M10 9.2l5 2.8-5 2.8z"/></svg></button>
+  </div>
+  <div class="phone" id="phone" hidden role="dialog" aria-label="Pinterest">
+    <div class="phdev">
+      <div class="phtop" id="phTop" title="Arrastra para mover"><i class="phnotch"></i><button class="phx" type="button" id="phClose" aria-label="Cerrar Pinterest">&times;</button></div>
+      <div class="phscr">
+        <div class="phhd"><b class="phlogo">P</b><span>Pinterest</span></div>
+        <form class="urlrow phurl" id="phForm" autocomplete="off"><input id="phUrl" type="url" inputmode="url" spellcheck="false" placeholder="Enlace de un pin, tablero o perfil" aria-label="Enlace de Pinterest"><button class="ctl" type="submit">Ver</button></form>
+        <div class="phbody" id="phBody">
+          <p class="phnote" id="phNote">Pega el enlace de un pin, un tablero o un perfil de Pinterest y se verá aquí, sin salir del cuadro. Para llevar una imagen al lienzo, cópiala y pégala con Ctrl+V.</p>
+          <div class="phembed" id="phEmbed"></div>
+        </div>
+        <div class="phfoot"><button class="ctl" type="button" id="phOpen" title="Pinterest no deja mostrarse completo dentro de otras páginas: se abre en una ventana del tamaño de un celular">Abrir Pinterest completo</button></div>
+      </div>
+    </div>
+  </div>
 </section>
 <section class="menu again profile" id="usuario" aria-hidden="true" aria-label="Usuario">
   <h2 class="vtitle">Usuario</h2>
@@ -98,6 +120,11 @@
     <canvas class="wheel" id="uWheel" tabindex="0" role="slider" aria-label="Color (flechas para ajustar)"></canvas>
     <div class="vbar" id="uBar" tabindex="0" role="slider" aria-label="Brillo" aria-orientation="vertical" aria-valuemin="35" aria-valuemax="100" title="Brillo"><i></i></div>
   </div>
+  <div class="controw">
+    <span class="lbl" id="uContL" style="margin:0;width:auto">Continuidad</span>
+    <button class="ctl sw" type="button" id="uCont" role="switch" aria-checked="false" aria-labelledby="uContL"><span>DESACTIVADO</span></button>
+  </div>
+  <p class="lbl conthint" style="margin:0;width:auto">Al reiniciar la página vuelves justo donde estabas, sin pasar por el inicio.</p>
 </section>
 <section class="menu again" id="join" aria-hidden="true" aria-label="Unirse a una reunión">
   <label class="lbl" for="codeIn">Código de la reunión</label>
@@ -142,6 +169,38 @@
 </div>
 <input type="file" id="sharePick" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden>
 <input type="file" id="filePick" accept="image/*" hidden>
+<div class="ytp away" id="ytp" role="dialog" aria-label="YouTube">
+  <div class="phdev">
+    <div class="phtop" id="ytTop" title="Arrastra para mover"><i class="phnotch"></i><button class="phx" type="button" id="ytClose" aria-label="Cerrar YouTube">&times;</button></div>
+    <div class="phscr">
+      <div class="phhd"><b class="phlogo ytlogo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7l8 5-8 5z"/></svg></b><span>YouTube</span></div>
+      <form class="urlrow phurl" id="ytForm" autocomplete="off"><input id="ytUrl" type="url" inputmode="url" spellcheck="false" placeholder="Enlace de un video o lista" aria-label="Enlace de YouTube"><button class="ctl" type="submit">Reproducir</button><button class="ctl" type="button" id="ytAdd" title="Añadir a la lista sin interrumpir">+ Lista</button></form>
+      <div class="phbody ytbody">
+        <p class="phnote" id="ytNote"></p>
+        <div class="ytscr"><div id="ytFrame"></div></div>
+        <div class="ytnow" id="ytNow"></div>
+        <div class="ytseek"><span id="ytCur">0:00</span><input type="range" id="ytSeek" min="0" max="1000" value="0" aria-label="Posición"><span id="ytDur">0:00</span></div>
+        <div class="ytctl">
+          <button class="ctl icon" type="button" id="ytPrev" title="Anterior" aria-label="Anterior"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5v14M18 5l-9 7 9 7z"/></svg></button>
+          <button class="ctl icon big" type="button" id="ytPlay" title="Reproducir / pausa" aria-label="Reproducir"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="ico-play" d="M8 5l11 7-11 7z"/><path class="ico-pause" d="M8 5v14M16 5v14"/></svg></button>
+          <button class="ctl icon" type="button" id="ytNext" title="Siguiente" aria-label="Siguiente"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 5v14M6 5l9 7-9 7z"/></svg></button>
+          <button class="ctl icon" type="button" id="ytRep" title="Repetir la lista" aria-label="Repetir la lista" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3l3 3-3 3M4 11V9a3 3 0 0 1 3-3h13M7 21l-3-3 3-3M20 13v2a3 3 0 0 1-3 3H4"/></svg></button>
+          <input type="range" id="ytVol" min="0" max="100" value="80" aria-label="Volumen" title="Volumen">
+        </div>
+        <div class="ytlbl">Tu lista</div>
+        <div class="ytlist" id="ytList"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="ytmini" id="ytmini" hidden role="group" aria-label="Reproductor de música">
+  <button class="ytmt" type="button" id="ytmOpen" title="Abrir YouTube"><img id="ytmImg" alt="" width="40" height="40"><span id="ytmTitle"></span></button>
+  <button class="ctl icon" type="button" id="ytmPrev" title="Anterior" aria-label="Anterior"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5v14M18 5l-9 7 9 7z"/></svg></button>
+  <button class="ctl icon" type="button" id="ytmPlay" title="Reproducir / pausa" aria-label="Reproducir"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="ico-play" d="M8 5l11 7-11 7z"/><path class="ico-pause" d="M8 5v14M16 5v14"/></svg></button>
+  <button class="ctl icon" type="button" id="ytmNext" title="Siguiente" aria-label="Siguiente"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 5v14M6 5l9 7-9 7z"/></svg></button>
+  <button class="ctl icon" type="button" id="ytmStop" title="Cerrar reproductor" aria-label="Cerrar reproductor"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  <i class="ytmbar" id="ytmBar"></i>
+</div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <button class="back" id="back" type="button" aria-label="Volver"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="16,3 7,12 16,21"/></svg></button>
 <script src="script.js"></script>
