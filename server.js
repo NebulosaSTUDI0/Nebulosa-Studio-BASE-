@@ -52,7 +52,7 @@ const MAX_ITEMS = 1500;          // elementos por cuadro
 const MAX_POINTS = 1000000;      // números de trazos por cuadro
 const MAX_IMG = 10 * 1024 * 1024;
 const MAX_OPS_BODY = 4 * 1024 * 1024;
-const TYPES = new Set(['img', 'rect', 'ellipse', 'text', 'stroke']);
+const TYPES = new Set(['img', 'rect', 'ellipse', 'text', 'stroke', 'thread']);
 const FONTS = new Set(['serif', 'sans', 'mono', 'display']);
 const IMG_MIME = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
 
@@ -93,6 +93,8 @@ function persist(b) {
 
 const clean = (s, max) => String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim().slice(0, max);
 const num = (v, d = 0, lim = 1e7) => (typeof v === 'number' && Number.isFinite(v)) ? Math.max(-lim, Math.min(lim, v)) : d;
+const ref = (v) => (typeof v === 'string' && /^[a-z0-9]{6,24}$/.test(v)) ? v : '';   // id de otra pieza (extremo de un hilo)
+const gid = (v) => (typeof v === 'string' && /^[a-z0-9]{3,40}$/.test(v)) ? v : '';  // id de grupo
 const col = (v) => (typeof v === 'string' && (v === '' || /^#[0-9a-fA-F]{6}$/.test(v))) ? v : '';
 
 function cleanItem(i) {
@@ -105,6 +107,10 @@ function cleanItem(i) {
     op: Math.max(0, Math.min(1, num(i.op, 1))),
     fill: col(i.fill), stroke: col(i.stroke), sw: Math.max(0, Math.min(500, num(i.sw, 0))),
   };
+  // grupos (clasificación de piezas): g = id del grupo, gn = nombre, gc = color
+  if (i.type !== 'thread' && gid(i.g)) {
+    o.g = i.g; o.gn = String(i.gn == null ? '' : i.gn).slice(0, 40); o.gc = col(i.gc) || '#ffffff';
+  }
   if (i.type === 'img') {
     if (typeof i.src !== 'string' || !/^[a-f0-9]{24}$/.test(i.src)) return null;
     o.src = i.src; if (i.flip) o.flip = true;
@@ -112,6 +118,10 @@ function cleanItem(i) {
     o.text = String(i.text == null ? '' : i.text).slice(0, 5000);
     o.size = Math.max(1, Math.min(2000, num(i.size, 32)));
     o.font = FONTS.has(i.font) ? i.font : 'serif';
+  } else if (i.type === 'thread') {
+    // hilo entre dos piezas (a, b) o con un extremo libre (ax, ay, bx, by son las coordenadas)
+    o.a = ref(i.a); o.b = ref(i.b);
+    o.ax = num(i.ax); o.ay = num(i.ay); o.bx = num(i.bx); o.by = num(i.by);
   } else if (i.type === 'stroke') {
     if (!Array.isArray(i.pts) || i.pts.length < 2 || i.pts.length % 2 || i.pts.length > 20000) return null;
     o.pts = i.pts.map((v) => num(v, 0, 10));
@@ -229,12 +239,14 @@ async function handleApi(req, res, url, headers) {
     const author = clean(body && body.name, 40) || 'Anónimo';
     const color = (body && typeof body.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(body.color)) ? body.color.toLowerCase() : '';
     let n = 0;
+    const ids = [];
     for (const b of boards.values()) {
       if (b.owner !== owner) continue;
       b.author = author;
       if (color) b.color = color;
-      persist(b); n++;
+      persist(b); n++; ids.push(b.id);
     }
+    if (ids.length) broadcastProfile(ids, color || '', author, null);
     return json(res, 200, { ok: true, updated: n }, headers);
   }
 
@@ -435,6 +447,15 @@ function broadcastCount(id) {
   for (const s of set) send(s, { type: 'b-count', id, n: set.size });
 }
 
+// Cambio de nombre/color de un dueño: lo reciben en vivo quienes miran la galería o tienen un cuadro abierto
+function broadcastProfile(ids, color, author, except) {
+  const msg = { type: 'b-profile', ids, color, author };
+  for (const c of wss.clients) {
+    if (c === except || !(c.watch || c.board)) continue;
+    send(c, msg);
+  }
+}
+
 function leaveBoard(ws) {
   const id = ws.board;
   if (!id) return;
@@ -515,6 +536,28 @@ wss.on('connection', (ws) => {
       }
       case 'b-leave': {
         leaveBoard(ws);
+        break;
+      }
+      case 'g-watch': {
+        // quiere enterarse en vivo de los cambios de nombre/color de otros usuarios
+        ws.watch = true;
+        break;
+      }
+      case 'g-profile': {
+        // cambio de color/nombre en vivo (mientras se arrastra el selector); se guarda con POST /api/owner/profile
+        const owner = String(m.owner || '').slice(0, 64);
+        if (owner.length < 16 || typeof m.color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(m.color)) return;
+        const now = Date.now();
+        if (now - (ws.lastProfile || 0) < 60) return;
+        ws.lastProfile = now;
+        const color = m.color.toLowerCase();
+        const author = clean(m.name, 40) || 'Anónimo';
+        const ids = [];
+        for (const b of boards.values()) {
+          if (b.owner !== owner) continue;
+          b.color = color; b.author = author; ids.push(b.id);
+        }
+        if (ids.length) broadcastProfile(ids, color, author, ws);
         break;
       }
     }
