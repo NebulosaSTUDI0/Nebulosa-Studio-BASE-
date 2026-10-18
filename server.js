@@ -371,6 +371,17 @@ const server = http.createServer((req, res) => {
       res.writeHead(200, { ...headers, 'Content-Type': 'text/html; charset=utf-8' });
       res.end(data);
     });
+  } else if (url === '/style.css' || url === '/script.js') {
+    const css = url === '/style.css';
+    fs.readFile(path.join(__dirname, url.slice(1)), (err, data) => {
+      if (err) {
+        res.writeHead(404, { ...headers, 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('No encontrado');
+        return;
+      }
+      res.writeHead(200, { ...headers, 'Content-Type': css ? 'text/css; charset=utf-8' : 'application/javascript; charset=utf-8' });
+      res.end(data);
+    });
   } else if (url === '/ice') {
     res.writeHead(200, { ...headers, 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ iceServers: ICE }));
