@@ -17,7 +17,7 @@
 <section class="menu" id="menu" aria-hidden="true" aria-label="Menú">
   <button class="opt" type="button" id="optReunion" style="--i:0">Reunión</button>
   <button class="opt" type="button" id="optArte" style="--i:1">Espacio de arte</button>
-  <button class="opt" type="button" style="--i:2">Misiones</button>
+  <button class="opt" type="button" id="optPropuesta" style="--i:2">Propuesta</button>
   <button class="opt" type="button" id="optUsuario" style="--i:3">Usuario</button>
 </section>
 <section class="menu again" id="meet" aria-hidden="true" aria-label="Reunión">
@@ -125,6 +125,30 @@
     <button class="ctl sw" type="button" id="uCont" role="switch" aria-checked="false" aria-labelledby="uContL"><span>DESACTIVADO</span></button>
   </div>
   <p class="lbl conthint" style="margin:0;width:auto">Al reiniciar la página vuelves justo donde estabas, sin pasar por el inicio.</p>
+</section>
+<section class="menu again studio cielo" id="propuesta" aria-hidden="true" aria-label="Propuesta">
+  <canvas id="cielo" aria-label="Cielo de propuestas: pegatinas unidas en constelaciones"></canvas>
+  <div class="sbar">
+    <div class="stitle" id="cTitle">Propuesta</div>
+    <div class="sgrp">
+      <button class="ctl icon" type="button" id="cZout" title="Alejar" aria-label="Alejar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"/></svg></button>
+      <button class="ctl zp" type="button" id="cPct" title="Zoom al 100%">100%</button>
+      <button class="ctl icon" type="button" id="cZin" title="Acercar" aria-label="Acercar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12M12 6v12"/></svg></button>
+      <button class="ctl icon" type="button" id="cFit" title="Ver todo el cielo" aria-label="Ver todo el cielo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+    </div>
+  </div>
+  <p class="chint" id="cHint" role="status"></p>
+  <div class="sdock sgrp" id="cDock" role="toolbar" aria-label="Pegatinas"></div>
+  <div class="scard" id="cCard" hidden role="dialog" aria-label="Pegatina">
+    <div class="cd-by"><i class="cd-dot" id="cdDot"></i><span id="cdBy"></span></div>
+    <p class="cd-tx" id="cdTx"></p>
+    <div class="cd-ft"><span class="cd-dt" id="cdDt"></span><span class="cd-ac" id="cdAc" hidden><button class="ctl" type="button" id="cdEd">Editar</button><button class="ctl" type="button" id="cdDel">Borrar</button></span></div>
+  </div>
+  <form class="scomp" id="cComp" hidden autocomplete="off">
+    <div class="cc-hd"><span class="cc-ic" id="ccIc"></span><b id="ccTt">Tu objetivo</b></div>
+    <textarea id="cText" rows="3" maxlength="140" placeholder="Escribe tu objetivo…" aria-label="Tu objetivo"></textarea>
+    <div class="cc-ft"><span class="cc-n" id="ccN">0/140</span><span class="cc-bt"><button class="ctl" type="button" id="ccNo">Cancelar</button><button class="ctl" type="submit" id="ccOk">Pegar</button></span></div>
+  </form>
 </section>
 <section class="menu again" id="join" aria-hidden="true" aria-label="Unirse a una reunión">
   <label class="lbl" for="codeIn">Código de la reunión</label>
