@@ -5,6 +5,8 @@
 // - API de cuadros del Espacio de arte (/api/boards, /api/img, /img, /thumb):
 //   los cuadros y sus imágenes se guardan en disco (carpeta ./data, o DATA_DIR)
 //   y todos los usuarios pueden verlos y editarlos en vivo.
+// - API de Propuesta (/api/stars): pegatinas con un objetivo, guardadas en data/stars.json;
+//   las de cada persona forman su constelación y llegan en vivo por el WebSocket.
 //
 // Uso:  npm install  ->  npm start   (abre http://localhost:3000)
 //
@@ -176,6 +178,58 @@ function applyOps(b, ops) {
   return out;
 }
 
+// ---------- Propuesta: pegatinas / constelaciones ----------
+// Cada pegatina es una estrella con un objetivo escrito. Las de una misma persona forman su constelación.
+const FILE_STARS = path.join(DATA, 'stars.json');
+const MAX_STARS = 1500;            // pegatinas en total
+const MAX_STARS_OWNER = 40;        // por persona
+const MAX_STAR_TEXT = 140;
+const STAR_KINDS = new Set(['star', 'moon', 'planet', 'rocket', 'flag', 'heart', 'bolt', 'sun']);
+const stars = new Map();           // id -> { id,owner,g,author,color,kind,text,x,y,t }
+let starsTimer = null;
+
+const groupOf = (owner) => crypto.createHash('sha256').update('nebulosa-g:' + owner).digest('hex').slice(0, 10);
+
+function loadStars() {
+  try {
+    const arr = JSON.parse(fs.readFileSync(FILE_STARS, 'utf8'));
+    for (const s of Array.isArray(arr) ? arr : []) {
+      if (!s || !/^[a-f0-9]{12}$/.test(s.id) || typeof s.owner !== 'string' || s.owner.length < 16 || !STAR_KINDS.has(s.kind)) continue;
+      const owner = s.owner.slice(0, 64);
+      stars.set(s.id, {
+        id: s.id, owner, g: groupOf(owner),
+        author: clean(s.author, 40) || 'Anónimo', color: col(s.color) || '#ffffff', kind: s.kind,
+        text: clean(s.text, MAX_STAR_TEXT), x: num(s.x, 0, 20000), y: num(s.y, 0, 20000), t: num(s.t, Date.now(), 1e15),
+      });
+    }
+  } catch {}
+  console.log('Pegatinas cargadas: ' + stars.size);
+}
+loadStars();
+
+function persistStars() {
+  clearTimeout(starsTimer);
+  starsTimer = setTimeout(() => {
+    starsTimer = null;
+    const tmp = FILE_STARS + '.tmp';
+    fs.writeFile(tmp, JSON.stringify([...stars.values()]), (err) => {
+      if (err) return console.warn('No se pudieron guardar las pegatinas');
+      fs.rename(tmp, FILE_STARS, () => {});
+    });
+  }, 800);
+}
+
+function starOut(s, owner) {
+  return { id: s.id, g: s.g, author: s.author, color: s.color, kind: s.kind, text: s.text, x: s.x, y: s.y, t: s.t, mine: !!owner && s.owner === owner };
+}
+
+function starsOf(owner) { const out = []; for (const s of stars.values()) if (s.owner === owner) out.push(s); return out; }
+
+// Avisa en vivo a quienes están mirando el cielo de propuestas
+function broadcastStars(msg) {
+  for (const c of wss.clients) if (c.pwatch) send(c, msg);
+}
+
 // ---------- utilidades HTTP ----------
 function json(res, code, obj, headers) {
   res.writeHead(code, { ...headers, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -239,15 +293,71 @@ async function handleApi(req, res, url, headers) {
     const author = clean(body && body.name, 40) || 'Anónimo';
     const color = (body && typeof body.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(body.color)) ? body.color.toLowerCase() : '';
     let n = 0;
-    const ids = [];
+    const ids = [], sids = [];
     for (const b of boards.values()) {
       if (b.owner !== owner) continue;
       b.author = author;
       if (color) b.color = color;
       persist(b); n++; ids.push(b.id);
     }
-    if (ids.length) broadcastProfile(ids, color || '', author, null);
+    for (const s of starsOf(owner)) { s.author = author; if (color) s.color = color; sids.push(s.id); }
+    if (sids.length) persistStars();
+    if (ids.length || sids.length) broadcastProfile(ids, color || '', author, null, sids);
     return json(res, 200, { ok: true, updated: n }, headers);
+  }
+
+  if (url === '/api/stars') {
+    if (m === 'GET') {
+      return json(res, 200, { stars: [...stars.values()].sort((a, b) => a.t - b.t).map((s) => starOut(s, owner)) }, headers);
+    }
+    if (m === 'POST') {
+      if (owner.length < 16) return json(res, 400, { error: 'Falta identificador' }, headers);
+      if (!rate('st:' + ip, 120, 600000)) return json(res, 429, { error: 'Demasiadas pegatinas seguidas' }, headers);
+      let body;
+      try { body = JSON.parse((await readBody(req, 4096)).toString('utf8')); } catch { return json(res, 400, { error: 'Datos inválidos' }, headers); }
+      const text = clean(body && body.text, MAX_STAR_TEXT);
+      if (!text) return json(res, 400, { error: 'Escribe tu objetivo' }, headers);
+      if (!STAR_KINDS.has(body.kind)) return json(res, 400, { error: 'Pegatina no válida' }, headers);
+      if (stars.size >= MAX_STARS) return json(res, 507, { error: 'El cielo está lleno' }, headers);
+      if (starsOf(owner).length >= MAX_STARS_OWNER) return json(res, 400, { error: 'Llegaste al máximo de ' + MAX_STARS_OWNER + ' pegatinas' }, headers);
+      const s = {
+        id: crypto.randomBytes(6).toString('hex'), owner, g: groupOf(owner),
+        author: clean(body.name, 40) || 'Anónimo', color: col(body.color) || '#ffffff', kind: body.kind,
+        text, x: num(body.x, 0, 20000), y: num(body.y, 0, 20000), t: Date.now(),
+      };
+      stars.set(s.id, s); persistStars();
+      broadcastStars({ type: 'p-add', star: starOut(s, '') });
+      return json(res, 201, starOut(s, owner), headers);
+    }
+    return json(res, 405, { error: 'Método no permitido' }, headers);
+  }
+
+  if ((r = /^\/api\/stars\/([a-f0-9]{12})$/.exec(url))) {
+    const s = stars.get(r[1]);
+    if (!s) return json(res, 404, { error: 'Esa pegatina ya no existe' }, headers);
+    if (!owner || s.owner !== owner) return json(res, 403, { error: 'Solo quien la pegó puede cambiarla' }, headers);
+    if (m === 'DELETE') {
+      stars.delete(s.id); persistStars();
+      broadcastStars({ type: 'p-del', id: s.id });
+      return json(res, 200, { ok: true }, headers);
+    }
+    if (m === 'POST') {
+      if (!rate('stm:' + ip, 300, 60000)) return json(res, 429, { error: 'Demasiados cambios seguidos' }, headers);
+      let body;
+      try { body = JSON.parse((await readBody(req, 4096)).toString('utf8')); } catch { return json(res, 400, { error: 'Datos inválidos' }, headers); }
+      if (!body || typeof body !== 'object') return json(res, 400, { error: 'Datos inválidos' }, headers);
+      if (body.text !== undefined) {
+        const text = clean(body.text, MAX_STAR_TEXT);
+        if (!text) return json(res, 400, { error: 'Escribe tu objetivo' }, headers);
+        s.text = text;
+      }
+      if (typeof body.x === 'number') s.x = num(body.x, s.x, 20000);
+      if (typeof body.y === 'number') s.y = num(body.y, s.y, 20000);
+      persistStars();
+      broadcastStars({ type: 'p-upd', star: starOut(s, '') });
+      return json(res, 200, starOut(s, owner), headers);
+    }
+    return json(res, 405, { error: 'Método no permitido' }, headers);
   }
 
   if (url === '/api/boards') {
@@ -266,7 +376,7 @@ async function handleApi(req, res, url, headers) {
       const color = (body && typeof body.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(body.color)) ? body.color.toLowerCase() : '';
       const now = Date.now();
       const b = { id: crypto.randomBytes(6).toString('hex'), name, author, color, owner, created: now, updated: now, bg: '#08080a', order: [], items: {}, thumb: 0 };
-      boards.set(b.id, b); persist(b);
+      boards.set(b.id, b); persist(b); notifyList();
       return json(res, 201, listItem(b, owner), headers);
     }
     return json(res, 405, { error: 'Método no permitido' }, headers);
@@ -285,6 +395,7 @@ async function handleApi(req, res, url, headers) {
       fs.unlink(path.join(DIR_BOARDS, b.id + '.json'), () => {});
       fs.unlink(path.join(DIR_THUMBS, b.id + '.jpg'), () => {});
       for (const s of [...(boardSubs.get(b.id) || [])]) send(s, { type: 'b-gone', id: b.id });
+      notifyList();
       return json(res, 200, { ok: true }, headers);
     }
     return json(res, 405, { error: 'Método no permitido' }, headers);
@@ -305,7 +416,7 @@ async function handleApi(req, res, url, headers) {
       const cid = String(body.cid || '').slice(0, 40);
       for (const s of boardSubs.get(b.id) || []) if (s.cid !== cid) send(s, { type: 'b-ops', id: b.id, ops: out });
     }
-    return json(res, 200, { ok: true }, headers);
+    return json(res, 200, { ok: true, v: 2 }, headers);
   }
 
   if ((r = /^\/api\/boards\/([a-f0-9]{12})\/thumb$/.exec(url))) {
@@ -318,7 +429,7 @@ async function handleApi(req, res, url, headers) {
     if (imgKind(buf) !== 'jpg') return json(res, 400, { error: 'La miniatura debe ser JPEG' }, headers);
     fs.writeFile(path.join(DIR_THUMBS, b.id + '.jpg'), buf, (err) => {
       if (err) return json(res, 500, { error: 'No se pudo guardar' }, headers);
-      b.thumb = Date.now(); persist(b);
+      b.thumb = Date.now(); persist(b); notifyList();
       json(res, 200, { ok: true }, headers);
     });
     return;
@@ -447,9 +558,19 @@ function broadcastCount(id) {
   for (const s of set) send(s, { type: 'b-count', id, n: set.size });
 }
 
+// La lista de cuadros cambió (nuevo, borrado, miniatura): quienes miran la galería la recargan en vivo
+let listT = null;
+function notifyList() {
+  if (listT) return;
+  listT = setTimeout(() => {
+    listT = null;
+    for (const c of wss.clients) if (c.watch) send(c, { type: 'b-list' });
+  }, 300);
+}
+
 // Cambio de nombre/color de un dueño: lo reciben en vivo quienes miran la galería o tienen un cuadro abierto
-function broadcastProfile(ids, color, author, except) {
-  const msg = { type: 'b-profile', ids, color, author };
+function broadcastProfile(ids, color, author, except, sids) {
+  const msg = { type: 'b-profile', ids, color, author, sids: sids || [] };
   for (const c of wss.clients) {
     if (c === except || !(c.watch || c.board)) continue;
     send(c, msg);
@@ -543,6 +664,11 @@ wss.on('connection', (ws) => {
         ws.watch = true;
         break;
       }
+      case 'p-watch': {
+        // está mirando el cielo de propuestas: recibe pegatinas nuevas, movidas y borradas
+        ws.pwatch = true;
+        break;
+      }
       case 'g-profile': {
         // cambio de color/nombre en vivo (mientras se arrastra el selector); se guarda con POST /api/owner/profile
         const owner = String(m.owner || '').slice(0, 64);
@@ -552,12 +678,13 @@ wss.on('connection', (ws) => {
         ws.lastProfile = now;
         const color = m.color.toLowerCase();
         const author = clean(m.name, 40) || 'Anónimo';
-        const ids = [];
+        const ids = [], sids = [];
         for (const b of boards.values()) {
           if (b.owner !== owner) continue;
           b.color = color; b.author = author; ids.push(b.id);
         }
-        if (ids.length) broadcastProfile(ids, color, author, ws);
+        for (const s of starsOf(owner)) { s.color = color; s.author = author; sids.push(s.id); }
+        if (ids.length || sids.length) broadcastProfile(ids, color, author, ws, sids);
         break;
       }
     }
