@@ -142,13 +142,13 @@
   });
 
   // ---- navegación entre apartados
-  const meet=document.getElementById('meet'),join=document.getElementById('join'),room=document.getElementById('room'),arte=document.getElementById('arte'),lienzo=document.getElementById('lienzo'),nuevo=document.getElementById('nuevo'),usuario=document.getElementById('usuario');
+  const meet=document.getElementById('meet'),join=document.getElementById('join'),room=document.getElementById('room'),arte=document.getElementById('arte'),lienzo=document.getElementById('lienzo'),nuevo=document.getElementById('nuevo'),usuario=document.getElementById('usuario'),propuesta=document.getElementById('propuesta');
   const back=document.getElementById('back'),toastEl=document.getElementById('toast');
   const optReu=document.getElementById('optReunion'),optCrear=document.getElementById('optCrear'),optUnirse=document.getElementById('optUnirse');
   const optEntrar=document.getElementById('optEntrar'),codeIn=document.getElementById('codeIn');
   const grid=document.getElementById('grid'),roomCode=document.getElementById('roomCode');
   const ctlMic=document.getElementById('ctlMic'),filePick=document.getElementById('filePick'),ctlCopy=document.getElementById('ctlCopy');
-  const parent=new Map([[meet,menu],[join,meet],[room,meet],[arte,menu],[lienzo,arte],[nuevo,arte],[usuario,menu]]);
+  const parent=new Map([[meet,menu],[join,meet],[room,meet],[arte,menu],[lienzo,arte],[nuevo,arte],[usuario,menu],[propuesta,menu]]);
   let view=menu,busy=false;
 
   function toast(msg,ms){
@@ -160,20 +160,22 @@
     busy=true;
     const from=view;view=to;
     if(from===lienzo){Studio.leave();Pin.hide();Yt.hide()}
+    if(from===propuesta)Sky.leave();
     Live.sync(to);Cont.save();
     menu.classList.add('again');
     from.classList.remove('show');from.classList.add('leave');from.setAttribute('aria-hidden','true');
     back.classList.toggle('show',to!==menu);
-    art.classList.toggle('hide',to===room||to===arte||to===lienzo||to===nuevo);
+    art.classList.toggle('hide',to===room||to===arte||to===lienzo||to===nuevo||to===propuesta);
     setTimeout(()=>{
       to.classList.remove('leave');to.classList.add('show');to.removeAttribute('aria-hidden');
-      busy=false;if(to===join)codeIn.focus();if(to===arte)Gallery.refresh();if(to===nuevo){Gallery.prep();document.getElementById('nbName').focus()}if(to===lienzo)Studio.enter();if(to===usuario)enterUser();
+      busy=false;if(to===join)codeIn.focus();if(to===arte)Gallery.refresh();if(to===nuevo){Gallery.prep();document.getElementById('nbName').focus()}if(to===lienzo)Studio.enter();if(to===usuario)enterUser();if(to===propuesta)Sky.enter();
     },550);
     return true;
   }
   optReu.addEventListener('click',()=>go(meet));
   document.getElementById('optArte').addEventListener('click',()=>go(arte));
   document.getElementById('optUsuario').addEventListener('click',()=>go(usuario));
+  document.getElementById('optPropuesta').addEventListener('click',()=>go(propuesta));
   optUnirse.addEventListener('click',()=>go(join));
   back.addEventListener('click',()=>{
     if(busy)return;
@@ -261,6 +263,17 @@
     myName=cleanName(localStorage.getItem(NAME_KEY));
     const sc=localStorage.getItem(COLOR_KEY);if(sc&&OK_COL.test(sc))myColor=sc.toLowerCase();
   }catch(e){}
+  addEventListener('storage',e=>{
+    if(e.key===COLOR_KEY&&e.newValue&&OK_COL.test(e.newValue)){
+      myColor=e.newValue.toLowerCase();
+      Gallery.retintMine();Studio.retint();
+      if(meTile)meTile.t.style.setProperty('--c',myColor);
+      if(view===usuario)enterUser();
+    }else if(e.key===NAME_KEY){
+      myName=cleanName(e.newValue);Gallery.retintMine();Studio.retint();
+      if(view===usuario)uName.value=myName;
+    }
+  });
   let profT=0;
   function syncProfile(){   // avisa al servidor para que tus cuadros muestren tu nombre y color actuales
     // al instante en esta pantalla: tus cuadros en la galería, el título del lienzo abierto y tu casilla en la reunión
@@ -876,10 +889,10 @@
 
     // ---------- red: cuadros compartidos en el servidor
     const cid=uid();
-    let boardId=null,meta=null,synced=new Map(),serverIds=[],syncedBg='',sending=false,again=false,syncT=0,camT=0,wsB=null,wsT=0,online=1,thumbDirty=false,leaving=null,warned=false;
+    let boardId=null,meta=null,synced=new Map(),serverIds=[],syncedBg='',sending=false,again=false,syncT=0,camT=0,wsB=null,wsT=0,online=1,thumbDirty=false,leaving=null,warned=false,warnedOld=false;
     function setTitle(){
       const t=el('sTitle');if(!meta){t.textContent='';return}
-      t.textContent=meta.name+' · '+meta.author+(online>1?' · '+online+' en línea':'');t.style.borderColor=meta.color||'';t.style.boxShadow=meta.color?'0 0 18px -8px '+meta.color:'';
+      t.textContent=meta.name+' · '+meta.author+(online>1?' · '+online+' en línea':'')+(boardId&&!(wsB&&wsB.readyState===1)?' · sin conexión en vivo':'');t.style.borderColor=meta.color||'';t.style.boxShadow=meta.color?'0 0 18px -8px '+meta.color:'';
     }
     function saveCamNow(){
       clearTimeout(camT);camT=0;
@@ -905,7 +918,8 @@
       const d=diff();if(!Object.keys(d.ops).length)return;
       sending=true;const id=boardId;
       try{
-        await Net.req('POST','/api/boards/'+id+'/ops',{cid:cid,ops:d.ops});
+        const rr=await Net.req('POST','/api/boards/'+id+'/ops',{cid:cid,ops:d.ops});
+        if(!(rr&&rr.v>=2)&&!warnedOld&&(d.ops.set||[]).some(i=>i.type==='thread'||i.g)){warnedOld=true;toast('El servidor está desactualizado: los hilos y grupos NO se guardan. Sube el server.js nuevo y reinícialo.')}
         if(boardId===id){
           for(const i of (d.ops.set||[]))synced.set(i.id,d.cur.get(i.id));
           for(const k of (d.ops.del||[]))synced.delete(k);
@@ -960,10 +974,21 @@
         await flush();
         const b=await Net.req('GET','/api/boards/'+id);
         if(boardId!==id)return;
+        if(meta&&!meta.mine){   // nombre y color del dueño también llegan por aquí si el socket en vivo no está disponible
+          if(OK_COL.test(b.color||''))meta.color=b.color;
+          if(b.author)meta.author=b.author;
+          setTitle();
+        }
         const items=(b.items||[]).filter(okItem),have=new Set(items.map(i=>i.id));
-        applyRemote({set:items.filter(i=>synced.get(i.id)!==JSON.stringify(i)),del:[...synced.keys()].filter(k=>!have.has(k)),order:items.map(i=>i.id),bg:b.bg});
+        const set=items.filter(i=>synced.get(i.id)!==JSON.stringify(i)),del=[...synced.keys()].filter(k=>!have.has(k));
+        const order=items.map(i=>i.id),bgNew=/^#[0-9a-f]{6}$/i.test(b.bg)?b.bg.toLowerCase():S.bg;
+        if(!set.length&&!del.length&&order.join(',')===serverIds.join(',')&&bgNew===String(syncedBg).toLowerCase())return;
+        applyRemote({set:set,del:del,order:order,bg:b.bg});
       }catch(e){if(e.status===404)toast('Este cuadro ya no existe')}
     }
+    // respaldo: si el socket en vivo no conecta (proxy, hosting sin WebSocket…), el cuadro se actualiza cada 3 s por HTTP
+    const wsOk=()=>!!(wsB&&wsB.readyState===1);
+    setInterval(()=>{if(view===lienzo&&boardId&&!document.hidden&&!wsOk())resync()},3000);
     function closeWS(){
       clearTimeout(wsT);const w=wsB;wsB=null;
       if(w){try{w.close()}catch(e){}}
@@ -972,7 +997,7 @@
       closeWS();const id=boardId;if(!id||!window.WebSocket)return;
       let w;try{w=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws')}catch(e){return}
       wsB=w;let first=true;
-      w.onopen=()=>{w.send(JSON.stringify({type:'b-join',id:id,cid:cid}));if(!first)resync();first=false};
+      w.onopen=()=>{w.send(JSON.stringify({type:'b-join',id:id,cid:cid}));if(!first)resync();first=false;setTitle()};
       w.onmessage=ev=>{
         let m;try{m=JSON.parse(ev.data)}catch(e){return}
         if(m.id!==boardId)return;
@@ -981,7 +1006,7 @@
         else if(m.type==='b-gone')toast('El dueño borró este cuadro');
       };
       w.onclose=()=>{
-        if(wsB!==w)return;wsB=null;
+        if(wsB!==w)return;wsB=null;setTitle();
         if(boardId===id)wsT=setTimeout(()=>{if(boardId===id){connectWS()}},2500);
       };
     }
@@ -1597,7 +1622,7 @@
     }
     // nombre y color en vivo: si cambia el dueño del cuadro abierto, el título se actualiza sin recargar
     function recolor(ids,color,author){
-      if(!meta||meta.mine||!boardId||!Array.isArray(ids)||!ids.includes(boardId))return;
+      if(!meta||!boardId||!Array.isArray(ids)||!ids.includes(boardId))return;
       if(OK_COL.test(color||''))meta.color=color;
       if(typeof author==='string'&&author)meta.author=author;
       setTitle();
@@ -1606,7 +1631,7 @@
       if(!meta||!meta.mine)return;
       meta.color=myColor;meta.author=myName||'Anónimo';setTitle();
     }
-    return {recolor:recolor,retint:retint,id:()=>boardId,enter:enter,leave:leave,open:open,paint:paintTo,fit:fitCam,pick:pickIn,clean:list=>(Array.isArray(list)?list:[]).filter(okItem)};
+    return {recolor:recolor,retint:retint,id:()=>boardId,enter:enter,leave:leave,open:open,paint:paintTo,fit:fitCam,pick:pickIn,relink:relink,clean:list=>(Array.isArray(list)?list:[]).filter(okItem)};
   })();
 
   // ---- Pinterest dentro del Espacio de arte (marco de celular)
@@ -1976,22 +2001,24 @@
   // Cuando alguien cambia su color, sus cuadros se repintan al instante en la galería y en el título del lienzo abierto.
   const Live=(()=>{
     let w=null,t=0,want=false,sendT=0,last=0;
-    const WANT=()=>view===arte||view===nuevo||view===lienzo||view===usuario;
+    const WANT=()=>view===arte||view===nuevo||view===lienzo||view===usuario||view===propuesta;
     function open(){
       if(w||!window.WebSocket||location.protocol==='file:')return;
       let x;try{x=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws')}catch(e){return}
       w=x;
-      x.onopen=()=>{try{x.send(JSON.stringify({type:'g-watch'}))}catch(e){}};
+      x.onopen=()=>{try{x.send(JSON.stringify({type:'g-watch'}));if(view===propuesta)x.send(JSON.stringify({type:'p-watch'}))}catch(e){}if(view===arte)Gallery.refresh();if(view===propuesta)Sky.refresh()};
       x.onmessage=ev=>{
         let m;try{m=JSON.parse(ev.data)}catch(e){return}
-        if(m.type==='b-profile'&&Array.isArray(m.ids)){Gallery.recolor(m.ids,m.color,m.author);Studio.recolor(m.ids,m.color,m.author)}
+        if(m.type==='b-profile'){if(Array.isArray(m.ids)){Gallery.recolor(m.ids,m.color,m.author);Studio.recolor(m.ids,m.color,m.author)}if(Array.isArray(m.sids))Sky.recolor(m.sids,m.color,m.author)}
+        else if(typeof m.type==='string'&&m.type.slice(0,2)==='p-')Sky.msg(m);
+        else if(m.type==='b-list'&&view===arte)Gallery.refresh();
       };
       x.onclose=()=>{if(w!==x)return;w=null;clearTimeout(t);if(want)t=setTimeout(()=>{if(want)open()},3000)};
       x.onerror=()=>{};
     }
     function close(){clearTimeout(t);clearTimeout(sendT);const x=w;w=null;if(x)try{x.close()}catch(e){}}
     function sync(to){
-      want=to===arte||to===nuevo||to===lienzo||to===usuario;
+      want=to===arte||to===nuevo||to===lienzo||to===usuario||to===propuesta;
       if(want)open();else close();
     }
     function push(){
@@ -2005,7 +2032,7 @@
       const d=Date.now()-last;
       if(d>=150)push();else sendT=setTimeout(push,150-d);
     }
-    return {sync:sync,profile:profile};
+    return {sync:sync,profile:profile,ok:()=>!!(w&&w.readyState===1)};
   })();
 
   // ---- galería de cuadros y pantalla de creación
@@ -2048,7 +2075,7 @@
     function recolor(ids,color,author){
       if(!Array.isArray(ids))return;
       cards.querySelectorAll('.card').forEach(c=>{
-        if(c.dataset.mine==='1'||!ids.includes(c.dataset.id))return;
+        if(!ids.includes(c.dataset.id))return;
         tintCard(c,color);
         if(typeof author==='string'&&author){const m=c.querySelector('.meta');if(m)m.textContent='por '+author+' · '+(m.dataset.ago||'')}
       });
@@ -2073,13 +2100,15 @@
         cards.append(c);
       }
     }
+    let again=false;
     async function refresh(){
-      if(loading)return;loading=true;
+      if(loading){again=true;return}loading=true;
       try{const d=await Net.req('GET','/api/boards');render(d.boards||[])}
       catch(e){if(!cards.children.length)gState.textContent=location.protocol==='file:'?'Abre la página desde el servidor (npm start) para ver los cuadros.':'No se pudieron cargar los cuadros.'}
-      finally{loading=false}
+      finally{loading=false;if(again){again=false;refresh()}}
     }
-    setInterval(()=>{if(view===arte&&!document.hidden)refresh()},15000);
+    let gTick=0;
+    setInterval(()=>{if(view===arte&&!document.hidden&&(!Live.ok()||++gTick%5===0))refresh()},3000);   // con el socket en vivo basta cada 15 s; sin él, cada 3 s
     function prep(){
       nbName.value='';
       nbBy.textContent=myName?'Por '+myName:'Sin nombre: se verá como Anónimo. Puedes ponerlo en Usuario';
@@ -2216,7 +2245,9 @@
       if(!final&&now-c.lastSend<150){clearTimeout(c.sendT);c.sendT=setTimeout(()=>sendMove(c,it,true),150);return}
       clearTimeout(c.sendT);c.lastSend=now;
       const item=Object.assign({},it);
-      c.q=c.q.then(()=>Net.req('POST','/api/boards/'+c.id+'/ops',{cid:c.cid,ops:{set:[item]}}))
+      Studio.relink(c.items);   // recoloca los extremos de los hilos pegados a la pieza movida
+      const set=[item].concat(c.items.filter(t=>t.type==='thread'&&(t.a===it.id||t.b===it.id)).map(t=>Object.assign({},t)));
+      c.q=c.q.then(()=>Net.req('POST','/api/boards/'+c.id+'/ops',{cid:c.cid,ops:{set:set}}))
         .then(r=>r,e=>{if(e&&e.status===429)toast('Demasiados cambios seguidos, espera un momento')});
     }
     function onDown(e){
@@ -2483,10 +2514,416 @@
     return {attach:attach,signal:signal,gotTrack:gotTrack,gone:gone,reset:reset,render:render,boardMsg:boardMsg};
   })();
 
+  // ---- Propuesta: cielo compartido de pegatinas.
+  // Cada pegatina es una estrella con un objetivo escrito; las de una misma persona se unen en su constelación
+  // (árbol de distancia mínima entre sus estrellas). Todo llega en vivo por el socket de Live.
+  const Sky=(()=>{
+    const sec=propuesta,cv=document.getElementById('cielo'),g=cv.getContext('2d');
+    const dock=document.getElementById('cDock'),titleEl=document.getElementById('cTitle'),hintEl=document.getElementById('cHint'),pctEl=document.getElementById('cPct');
+    const card=document.getElementById('cCard'),cdDot=document.getElementById('cdDot'),cdBy=document.getElementById('cdBy'),cdTx=document.getElementById('cdTx'),cdDt=document.getElementById('cdDt'),cdAc=document.getElementById('cdAc'),cdEd=document.getElementById('cdEd'),cdDel=document.getElementById('cdDel');
+    const comp=document.getElementById('cComp'),ccIc=document.getElementById('ccIc'),ccTt=document.getElementById('ccTt'),cText=document.getElementById('cText'),ccN=document.getElementById('ccN'),ccNo=document.getElementById('ccNo'),ccOk=document.getElementById('ccOk');
+    const KINDS=[
+      ['star','Estrella','M12 2.5l2.9 6.2 6.6.8-4.9 4.6 1.3 6.7L12 17.5l-5.9 3.3 1.3-6.7L2.5 9.5l6.6-.8z'],
+      ['moon','Luna','M20 14.5A8.5 8.5 0 1 1 9.5 4a6.8 6.8 0 0 0 10.5 10.5z'],
+      ['planet','Planeta','M12 6.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11zM3.2 16.6C1.9 14.8 5.8 11.2 11.5 9M20.8 7.4c1.3 1.8-2.6 5.4-8.3 7.6'],
+      ['rocket','Cohete','M12 2.5c3.2 2.4 4.6 5.6 4.6 9.5l-2 3.2H9.4l-2-3.2c0-3.9 1.4-7.1 4.6-9.5zM9.4 15.2L7 19.5l3.4-1.3M14.6 15.2l2.4 4.3-3.4-1.3M12 8.6v.1'],
+      ['flag','Meta','M6 21.5V3M6 4h12l-2.6 4L18 12H6'],
+      ['heart','Corazón','M12 20.5s-8-4.8-8-10.6A4.4 4.4 0 0 1 12 7.2a4.4 4.4 0 0 1 8 2.7c0 5.8-8 10.6-8 10.6z'],
+      ['bolt','Rayo','M13.5 2.5L5 13.5h6l-1 8 9-11.5h-6z'],
+      ['sun','Sol','M12 7.5a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9zM12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M4.6 19.4l2.1-2.1M17.3 6.7l2.1-2.1']
+    ];
+    const KIND=new Map(),PATH=new Map();
+    for(const k of KINDS){KIND.set(k[0],k);PATH.set(k[0],new Path2D(k[2]))}
+    const MAXT=140,ZMIN=.12,ZMAX=3,TAU=Math.PI*2;
+    const stars=new Map();                 // id -> {id,g,author,color,kind,text,x,y,t,mine,born,ph}
+    const cam={x:0,y:0,z:1};
+    const P=new Map();                     // punteros activos (ratón o dedos)
+    let groups=[],W=0,H=0,dpr=1,raf=0,on=false,arm='',sel='',ed=null,sending=false,failed=false,loaded=false,tw=null,lastPct='';
+    let ptr={x:0,y:0,in:false},gest=null,delArm=0,delT=0,retryT=0;
+
+    const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+    const sx=x=>(x-cam.x)*cam.z+W/2,sy=y=>(y-cam.y)*cam.z+H/2;
+    const wx=x=>(x-W/2)/cam.z+cam.x,wy=y=>(y-H/2)/cam.z+cam.y;
+    const rad=()=>22*clamp(cam.z,.5,1.5);
+    const eob=t=>{const c=1.70158;return 1+(c+1)*Math.pow(t-1,3)+c*Math.pow(t-1,2)};
+    const colOf=s=>s.mine?myColor:(OK_COL.test(s.color||'')?s.color.toLowerCase():'#ffffff');
+    const nameOf=s=>s.mine?(myName||'Anónimo'):(s.author||'Anónimo');
+    const phase=id=>(parseInt(String(id).slice(0,6),16)%628)/100;
+    const rgbC=new Map();
+    function rgb(h){let v=rgbC.get(h);if(!v){v=[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];rgbC.set(h,v)}return v}
+    const rgba=(h,a)=>{const q=rgb(h);return 'rgba('+q[0]+','+q[1]+','+q[2]+','+a+')'};
+
+    // ---------- constelaciones: árbol de distancia mínima (Prim) entre las estrellas de cada persona
+    function mst(L){
+      const n=L.length,e=[];if(n<2)return e;
+      const inT=new Array(n).fill(false),d=new Array(n).fill(Infinity),p=new Array(n).fill(-1);d[0]=0;
+      for(let i=0;i<n;i++){
+        let u=-1;for(let j=0;j<n;j++)if(!inT[j]&&(u<0||d[j]<d[u]))u=j;
+        inT[u]=true;if(p[u]>=0)e.push([L[p[u]],L[u]]);
+        for(let v=0;v<n;v++)if(!inT[v]){const dd=(L[u].x-L[v].x)*(L[u].x-L[v].x)+(L[u].y-L[v].y)*(L[u].y-L[v].y);if(dd<d[v]){d[v]=dd;p[v]=u}}
+      }
+      return e;
+    }
+    function regroup(){
+      const m=new Map();
+      for(const s of stars.values()){let L=m.get(s.g);if(!L)m.set(s.g,L=[]);L.push(s)}
+      groups=[];for(const L of m.values())groups.push({list:L,edges:mst(L)});
+    }
+
+    // ---------- datos
+    function put(d,auth){
+      let s=stars.get(d.id);
+      if(s){
+        s.g=d.g;s.author=d.author;s.color=d.color;s.kind=d.kind;s.text=d.text;
+        if(!(gest&&gest.s===s&&gest.moved)){s.x=d.x;s.y=d.y}
+        s.mine=auth?!!d.mine:(s.mine||!!d.mine);
+      }else{
+        s={id:d.id,g:d.g,author:d.author,color:d.color,kind:d.kind,text:String(d.text||''),x:d.x,y:d.y,t:d.t,mine:!!d.mine,born:performance.now(),ph:phase(d.id)};
+        stars.set(s.id,s);
+      }
+      return s;
+    }
+    function upsert(d){const s=put(d,false);regroup();updTitle();updHint();return s}
+    function remove(id){if(!stars.delete(id))return;if(sel===id)closeCard();regroup();updTitle();updHint()}
+    async function refresh(){
+      if(!on)return;
+      try{
+        const d=await Net.req('GET','/api/stars');
+        failed=false;clearTimeout(retryT);
+        const seen=new Set();let i=0;
+        for(const x of d.stars||[]){seen.add(x.id);const had=stars.has(x.id);const s=put(x,true);if(!had)s.born=performance.now()+Math.min(i++*18,1400)}
+        for(const id of [...stars.keys()])if(!seen.has(id))stars.delete(id);
+        regroup();
+        if(sel&&!stars.has(sel))closeCard();
+        if(!loaded){loaded=true;fit()}
+        updTitle();updHint();
+      }catch(e){
+        failed=true;updHint();
+        clearTimeout(retryT);if(location.protocol!=='file:')retryT=setTimeout(()=>{if(on&&failed)refresh()},4000);
+      }
+    }
+    function msg(m){
+      if(!on)return;
+      if(m.type==='p-add'&&m.star)upsert(m.star);
+      else if(m.type==='p-upd'&&m.star){if(stars.has(m.star.id)){upsert(m.star);if(sel===m.star.id)select(sel)}}
+      else if(m.type==='p-del')remove(m.id);
+    }
+    function recolor(ids,color,author){
+      let hit=false;
+      for(const id of ids){const s=stars.get(id);if(!s)continue;if(color&&OK_COL.test(color))s.color=color;if(author)s.author=author;hit=true}
+      if(hit&&sel&&ids.indexOf(sel)>=0)select(sel);
+    }
+
+    // ---------- textos de la barra
+    function updTitle(){
+      const n=stars.size;let c=0;for(const G of groups)if(G.list.length>1)c++;
+      titleEl.textContent='Propuesta'+(n?' · '+n+(n===1?' pegatina':' pegatinas')+(c?' · '+c+(c===1?' constelación':' constelaciones'):''):'');
+    }
+    function updHint(){
+      let t='';
+      if(failed)t=location.protocol==='file:'?'Abre la página desde el servidor (npm start) para ver y pegar propuestas':'No se pudo cargar el cielo. Reintentando…';
+      else if(ed)t='';
+      else if(arm)t='Toca el cielo para pegar · Esc para terminar';
+      else if(loaded){
+        let mine=false;for(const s of stars.values())if(s.mine){mine=true;break}
+        if(!mine)t=stars.size?'Elige una pegatina y toca el cielo: las tuyas se unirán en tu constelación':'El cielo está vacío. Elige una pegatina y toca el cielo para dejar tu objetivo';
+      }
+      hintEl.textContent=t;
+    }
+
+    // ---------- cámara
+    function flyTo(x,y,z){
+      z=clamp(z,ZMIN,ZMAX);
+      if(reduce||!on){cam.x=x;cam.y=y;cam.z=z;tw=null;return}
+      tw={t0:performance.now(),x0:cam.x,y0:cam.y,z0:cam.z,x:x,y:y,z:z};
+    }
+    function fit(){
+      if(!stars.size){flyTo(0,0,1);return}
+      let a=1e9,b=-1e9,c=1e9,d=-1e9;
+      for(const s of stars.values()){if(s.x<a)a=s.x;if(s.x>b)b=s.x;if(s.y<c)c=s.y;if(s.y>d)d=s.y}
+      flyTo((a+b)/2,(c+d)/2,Math.min(W/(b-a+300),H/(d-c+300),1.3));
+    }
+    function zoomAt(px,py,f){
+      const a=wx(px),b=wy(py);cam.z=clamp(cam.z*f,ZMIN,ZMAX);cam.x=a-(px-W/2)/cam.z;cam.y=b-(py-H/2)/cam.z;tw=null;
+    }
+    function size(){
+      dpr=Math.min(devicePixelRatio||1,2);W=sec.clientWidth;H=sec.clientHeight;
+      cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);
+    }
+
+    // ---------- dibujo
+    function sticker(x,y,R,kind,c,al,rot){
+      g.globalAlpha=al;
+      g.fillStyle='#0a0a0d';g.beginPath();g.arc(x,y,R,0,TAU);g.fill();
+      g.lineWidth=1.6;g.strokeStyle=c;g.stroke();
+      g.lineWidth=1;g.strokeStyle='rgba(255,255,255,.16)';g.beginPath();g.arc(x,y,Math.max(R-3.5,.5),0,TAU);g.stroke();
+      const sc=R/20;
+      g.save();g.translate(x,y);g.rotate(rot);g.scale(sc,sc);g.translate(-12,-12);
+      g.lineWidth=1.5/sc;g.lineCap='square';g.lineJoin='miter';g.strokeStyle='#fff';g.stroke(PATH.get(kind));
+      g.restore();g.globalAlpha=1;
+    }
+    function halo(x,y,r,c,a){
+      const gd=g.createRadialGradient(x,y,0,x,y,r);gd.addColorStop(0,rgba(c,a));gd.addColorStop(1,rgba(c,0));
+      g.fillStyle=gd;g.beginPath();g.arc(x,y,r,0,TAU);g.fill();
+    }
+    function drawStar(s,t,R,lod,anim){
+      const x=sx(s.x),y=sy(s.y);
+      if(x<-90||y<-90||x>W+90||y>H+90)return;
+      const age=(t-s.born)/650;if(age<=0)return;
+      const k=age>=1?1:eob(age),c=colOf(s),tw2=anim?.82+.18*Math.sin(t/900+s.ph):1;
+      if(lod){
+        g.globalAlpha=.22*tw2*Math.min(1,age);g.fillStyle=c;g.beginPath();g.arc(x,y,9,0,TAU);g.fill();
+        g.globalAlpha=Math.min(1,age);g.fillStyle='#fff';g.beginPath();g.arc(x,y,2.6,0,TAU);g.fill();g.globalAlpha=1;return;
+      }
+      halo(x,y,R*2.7,c,.3*tw2);
+      if(age<1){g.globalAlpha=(1-age)*.7;g.strokeStyle=c;g.lineWidth=1.4;g.beginPath();g.arc(x,y,R*(1+age*2.4),0,TAU);g.stroke();g.globalAlpha=1}
+      sticker(x,y,Math.max(R*k,.5),s.kind,c,1,(s.ph-3.14)*.05);
+      if(s.id===sel){g.strokeStyle='#fff';g.lineWidth=1;g.setLineDash([3,4]);g.beginPath();g.arc(x,y,R+7,0,TAU);g.stroke();g.setLineDash([])}
+      if(cam.z>=.9){
+        const cap=s.text.length>26?s.text.slice(0,25)+'…':s.text;
+        g.font=Math.round(11*clamp(cam.z,.9,1.5))+'px Georgia,serif';g.textAlign='center';
+        g.lineJoin='round';g.lineWidth=3;g.strokeStyle='rgba(0,0,0,.75)';g.strokeText(cap,x,y+R+17);
+        g.fillStyle='rgba(255,255,255,.7)';g.fillText(cap,x,y+R+17);
+      }
+    }
+    function draw(t){
+      raf=0;if(!on)return;
+      if(tw){const u=clamp((t-tw.t0)/700,0,1),e=1-Math.pow(1-u,3);cam.x=tw.x0+(tw.x-tw.x0)*e;cam.y=tw.y0+(tw.y-tw.y0)*e;cam.z=tw.z0*Math.pow(tw.z/tw.z0,e);if(u>=1)tw=null}
+      const R=rad(),lod=cam.z<.42,anim=!reduce;
+      g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);
+      if('letterSpacing' in g)g.letterSpacing='0px';
+      // constelaciones: neblina, líneas y destellos que viajan por ellas
+      for(const G of groups){
+        if(G.list.length<2)continue;
+        const c=colOf(G.list[0]);let mx=0,my=0,top=1e9,tx=0;
+        for(const s of G.list){const x=sx(s.x),y=sy(s.y);mx+=x;my+=y;if(y<top){top=y;tx=x}}
+        mx/=G.list.length;my/=G.list.length;
+        let far=0;for(const s of G.list){const d=Math.hypot(sx(s.x)-mx,sy(s.y)-my);if(d>far)far=d}
+        if(mx+far+R*3<0||mx-far-R*3>W||my+far+R*3<0||my-far-R*3>H)continue;
+        if(!lod)halo(mx,my,far+R*3,c,.07);
+        g.lineWidth=1.2;g.lineCap='round';
+        for(const e of G.edges){
+          const a=e[0],b=e[1],x1=sx(a.x),y1=sy(a.y),x2=sx(b.x),y2=sy(b.y);
+          if((x1<-50&&x2<-50)||(x1>W+50&&x2>W+50)||(y1<-50&&y2<-50)||(y1>H+50&&y2>H+50))continue;
+          const dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy);if(len<1)continue;
+          const ux=dx/len,uy=dy/len,cut=lod?0:Math.min(R*.95,len/2.2),al=clamp((t-Math.max(a.born,b.born))/650,0,1);
+          if(al<=0)continue;
+          g.strokeStyle=rgba(c,.5*al);g.beginPath();g.moveTo(x1+ux*cut,y1+uy*cut);g.lineTo(x2-ux*cut,y2-uy*cut);g.stroke();
+          if(anim&&!lod){const u=(t/6000+a.ph/6.28+b.ph/12.56)%1;g.fillStyle='rgba(255,255,255,'+(.75*al)+')';g.beginPath();g.arc(x1+dx*u,y1+dy*u,1.7,0,TAU);g.fill()}
+        }
+        if(cam.z>=.5){
+          if('letterSpacing' in g)g.letterSpacing='3px';
+          g.font='10px Georgia,serif';g.textAlign='center';g.fillStyle=rgba(c,.75);
+          const nm=nameOf(G.list[0]);
+          g.fillText((nm==='Anónimo'?'CONSTELACIÓN ANÓNIMA':'CONSTELACIÓN DE '+nm.toUpperCase()),clamp(tx,90,W-90),Math.max(16,top-R-20));
+          if('letterSpacing' in g)g.letterSpacing='0px';
+        }
+      }
+      // estrellas (la elegida, encima de todas)
+      let top=null;
+      for(const s of stars.values()){if(s.id===sel){top=s;continue}drawStar(s,t,R,lod,anim)}
+      if(top)drawStar(top,t,R,lod,anim);
+      // vista previa de la pegatina que vas a pegar
+      let gx=null,gy=null,gk=arm;
+      if(ed&&!ed.id){gx=sx(ed.x);gy=sy(ed.y);gk=ed.kind}
+      else if(arm&&ptr.in&&!ed&&!gest){gx=ptr.x;gy=ptr.y}
+      if(gx!==null&&gk){
+        halo(gx,gy,R*2.7,myColor,.25);sticker(gx,gy,R,gk,myColor,.6,0);
+        if(ed&&anim){g.globalAlpha=.5;g.strokeStyle=myColor;g.lineWidth=1.2;g.beginPath();g.arc(gx,gy,R+6+3*Math.sin(t/300),0,TAU);g.stroke();g.globalAlpha=1}
+      }
+      // tarjeta y cuadro de texto siguen a su estrella
+      if(!card.hidden){const s=stars.get(sel);if(s)place(card,sx(s.x),sy(s.y),true);else closeCard()}
+      if(ed&&!comp.hidden)place(comp,sx(ed.x),sy(ed.y),false);
+      const p=Math.round(cam.z*100)+'%';if(p!==lastPct){lastPct=p;pctEl.textContent=p}
+      raf=requestAnimationFrame(draw);
+    }
+    function place(el,ax,ay,above){
+      const w=el.offsetWidth,h=el.offsetHeight,r=rad();let l,tp;
+      if(above){l=ax-w/2;tp=ay-r-h-14;if(tp<8)tp=ay+r+14}
+      else{l=ax+r+14;if(l+w>W-8)l=ax-r-14-w;tp=ay-h/2}
+      l=Math.round(clamp(l,8,Math.max(8,W-w-8)));tp=Math.round(clamp(tp,8,Math.max(8,H-h-8)));
+      if(el._l!==l){el._l=l;el.style.left=l+'px'}
+      if(el._t!==tp){el._t=tp;el.style.top=tp+'px'}
+    }
+
+    // ---------- tarjeta de una pegatina
+    function select(id){
+      const s=stars.get(id);
+      if(!s){closeCard();return}
+      sel=id;
+      const c=colOf(s);
+      card.style.setProperty('--c',c);cdDot.style.background=c;
+      cdBy.textContent=nameOf(s);cdTx.textContent=s.text;
+      cdDt.textContent=new Date(s.t).toLocaleDateString('es',{day:'numeric',month:'short',year:'numeric'});
+      cdAc.hidden=!s.mine;delArm=0;clearTimeout(delT);cdDel.textContent='Borrar';
+      card.hidden=false;card._l=card._t=null;
+    }
+    function closeCard(){sel='';card.hidden=true;delArm=0;clearTimeout(delT)}
+    cdEd.addEventListener('click',()=>{const s=stars.get(sel);if(s&&s.mine)openComp(s,s.x,s.y)});
+    cdDel.addEventListener('click',async()=>{
+      const s=stars.get(sel);if(!s||!s.mine)return;
+      if(!delArm){delArm=1;cdDel.textContent='¿Seguro?';clearTimeout(delT);delT=setTimeout(()=>{delArm=0;cdDel.textContent='Borrar'},3000);return}
+      try{await Net.req('DELETE','/api/stars/'+s.id);remove(s.id)}
+      catch(e){if(e.status===404)remove(s.id);else toast(e.message||'No se pudo borrar la pegatina')}
+    });
+
+    // ---------- cuadro para escribir el objetivo
+    function compIcon(){const K=KIND.get(ed.kind);ccIc.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="'+K[2]+'"/></svg>';ccTt.textContent=ed.id?'Editar objetivo':K[1]}
+    function updN(){ccN.textContent=cText.value.length+'/'+MAXT}
+    function openComp(star,x,y){
+      closeCard();
+      ed={id:star?star.id:'',x:x,y:y,kind:star?star.kind:arm};
+      compIcon();
+      cText.value=star?star.text:'';updN();
+      comp.style.setProperty('--c',myColor);
+      comp.hidden=false;comp._l=comp._t=null;
+      updHint();
+      cText.focus();
+    }
+    function closeComp(){ed=null;comp.hidden=true;cText.blur();updHint()}
+    async function submit(){
+      if(!ed||sending)return;
+      const text=cText.value.replace(/\s+/g,' ').trim();
+      if(!text){cText.focus();return}
+      sending=true;ccOk.disabled=true;
+      try{
+        let s;
+        if(ed.id){s=await Net.req('POST','/api/stars/'+ed.id,{text:text})}
+        else{
+          s=await Net.req('POST','/api/stars',{kind:ed.kind,text:text,x:Math.round(ed.x),y:Math.round(ed.y),name:myName||'Anónimo',color:myColor});
+        }
+        s.mine=true;put(s,false);regroup();updTitle();
+        const id=s.id;closeComp();
+        if(!arm)select(id);
+      }catch(e){
+        if(e.status===404){toast('Esa pegatina ya no existe');closeComp();refresh()}
+        else toast(e.message||'No se pudo guardar la pegatina');
+      }finally{sending=false;ccOk.disabled=false}
+    }
+    comp.addEventListener('submit',e=>{e.preventDefault();submit()});
+    ccNo.addEventListener('click',closeComp);
+    cText.addEventListener('input',updN);
+    cText.addEventListener('keydown',e=>{
+      e.stopPropagation();
+      if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();submit()}
+      else if(e.key==='Escape'){e.preventDefault();closeComp()}
+    });
+
+    // ---------- dock de pegatinas
+    function setArm(k){
+      arm=k;
+      for(const b of dock.children){const o=b.dataset.k===k;b.classList.toggle('on',o);b.setAttribute('aria-pressed',o?'true':'false')}
+      cv.classList.toggle('arm',!!k);
+      if(ed&&!ed.id&&k){ed.kind=k;compIcon()}
+      if(k)closeCard();
+      updHint();
+    }
+    for(const k of KINDS){
+      const b=document.createElement('button');
+      b.type='button';b.className='ctl icon';b.dataset.k=k[0];b.title=k[1]+' (pegar)';b.setAttribute('aria-label',k[1]);b.setAttribute('aria-pressed','false');
+      b.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="'+k[2]+'"/></svg>';
+      b.addEventListener('click',()=>setArm(arm===k[0]?'':k[0]));
+      dock.appendChild(b);
+    }
+    document.getElementById('cZin').addEventListener('click',()=>zoomAt(W/2,H/2,1.25));
+    document.getElementById('cZout').addEventListener('click',()=>zoomAt(W/2,H/2,.8));
+    document.getElementById('cFit').addEventListener('click',fit);
+    pctEl.addEventListener('click',()=>flyTo(cam.x,cam.y,1));
+
+    // ---------- gestos sobre el cielo
+    const pos=e=>{const r=cv.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}};
+    function hit(px,py){
+      const r=rad()+6,r2=r*r;let best=null;
+      for(const s of stars.values()){const dx=sx(s.x)-px,dy=sy(s.y)-py;if(dx*dx+dy*dy<=r2)best=s}
+      return best;
+    }
+    cv.addEventListener('pointerdown',e=>{
+      if(!on)return;
+      if(ed){
+        if(cText.value.trim()){cText.focus();return}   // no pierdas lo que estás escribiendo
+        closeComp();
+      }
+      try{cv.setPointerCapture(e.pointerId)}catch(x){}
+      const p=pos(e);P.set(e.pointerId,p);
+      if(P.size===2){
+        const q=[...P.values()],mx=(q[0].x+q[1].x)/2,my=(q[0].y+q[1].y)/2;
+        gest={type:'pinch',d0:Math.hypot(q[0].x-q[1].x,q[0].y-q[1].y)||1,z0:cam.z,wx:wx(mx),wy:wy(my)};tw=null;return;
+      }
+      if(P.size>2)return;
+      const s=hit(p.x,p.y);
+      gest={type:s&&s.mine?'star':'pan',s:s,x0:p.x,y0:p.y,cx:cam.x,cy:cam.y,sx0:s?s.x:0,sy0:s?s.y:0,moved:false};tw=null;
+    });
+    cv.addEventListener('pointermove',e=>{
+      const p=pos(e);ptr.x=p.x;ptr.y=p.y;ptr.in=true;
+      if(!P.has(e.pointerId)||!gest)return;
+      P.set(e.pointerId,p);
+      if(gest.type==='pinch'){
+        const q=[...P.values()];if(q.length<2)return;
+        const mx=(q[0].x+q[1].x)/2,my=(q[0].y+q[1].y)/2;
+        cam.z=clamp(gest.z0*Math.hypot(q[0].x-q[1].x,q[0].y-q[1].y)/gest.d0,ZMIN,ZMAX);
+        cam.x=gest.wx-(mx-W/2)/cam.z;cam.y=gest.wy-(my-H/2)/cam.z;return;
+      }
+      const dx=p.x-gest.x0,dy=p.y-gest.y0;
+      if(!gest.moved&&Math.hypot(dx,dy)<6)return;
+      gest.moved=true;
+      if(gest.type==='star'){gest.s.x=gest.sx0+dx/cam.z;gest.s.y=gest.sy0+dy/cam.z;regroup()}
+      else{cam.x=gest.cx-dx/cam.z;cam.y=gest.cy-dy/cam.z;cv.classList.add('pan')}
+    });
+    function up(e,cancel){
+      if(!P.delete(e.pointerId))return;
+      cv.classList.remove('pan');
+      const gs=gest;gest=null;
+      if(P.size>0){const q=[...P.values()][0];gest={type:'pan',s:null,x0:q.x,y0:q.y,cx:cam.x,cy:cam.y,sx0:0,sy0:0,moved:true};return}
+      if(!gs||gs.type==='pinch')return;
+      if(gs.type==='star'&&gs.moved){
+        if(cancel){gs.s.x=gs.sx0;gs.s.y=gs.sy0;regroup();return}
+        saveMove(gs.s);return;
+      }
+      if(gs.moved||cancel)return;
+      const p=pos(e);
+      if(gs.s)select(gs.s.id);
+      else if(arm)openComp(null,wx(p.x),wy(p.y));
+      else closeCard();
+    }
+    async function saveMove(s){
+      s.x=Math.round(s.x);s.y=Math.round(s.y);
+      try{await Net.req('POST','/api/stars/'+s.id,{x:s.x,y:s.y})}
+      catch(e){toast(e.message||'No se pudo mover la pegatina');refresh()}
+    }
+    cv.addEventListener('pointerup',e=>up(e,false));
+    cv.addEventListener('pointercancel',e=>up(e,true));
+    cv.addEventListener('pointerleave',()=>{ptr.in=false});
+    cv.addEventListener('wheel',e=>{
+      if(!on)return;e.preventDefault();
+      const p=pos(e);zoomAt(p.x,p.y,Math.exp(-e.deltaY*(e.ctrlKey?.01:.0015)));
+    },{passive:false});
+    addEventListener('keydown',e=>{
+      if(!on||e.key!=='Escape')return;
+      if(ed)closeComp();else if(sel)closeCard();else if(arm)setArm('');
+    });
+    addEventListener('resize',()=>{if(on)size()});
+
+    function enter(){
+      if(on)return;
+      on=true;size();
+      sec.style.setProperty('--uc',myColor);
+      setArm('');closeComp();closeCard();P.clear();gest=null;tw=null;
+      cam.x=0;cam.y=0;cam.z=1;loaded=false;failed=false;
+      let i=0;for(const s of stars.values())s.born=performance.now()+Math.min(i++*18,1400);
+      updTitle();updHint();refresh();
+      if(!raf)raf=requestAnimationFrame(draw);
+    }
+    function leave(){
+      on=false;cancelAnimationFrame(raf);raf=0;clearTimeout(retryT);
+      closeComp();closeCard();setArm('');P.clear();gest=null;
+    }
+    return {enter:enter,leave:leave,refresh:refresh,msg:msg,recolor:recolor};
+  })();
+
   // ---- continuidad (Usuario): al reiniciar la página vuelves donde estabas, sin pasar por el inicio
   const Cont=(()=>{
     const ON_KEY='nebulosa.cont',AT_KEY='nebulosa.where';
-    const NAMES=new Map([[menu,'menu'],[meet,'meet'],[join,'join'],[room,'room'],[arte,'arte'],[lienzo,'lienzo'],[nuevo,'nuevo'],[usuario,'usuario']]);
+    const NAMES=new Map([[menu,'menu'],[meet,'meet'],[join,'join'],[room,'room'],[arte,'arte'],[lienzo,'lienzo'],[nuevo,'nuevo'],[usuario,'usuario'],[propuesta,'propuesta']]);
     const byName=n=>{for(const [el,k] of NAMES)if(k===n)return el;return null};
     const sw=document.getElementById('uCont'),swT=sw.querySelector('span');
     let on=false;
